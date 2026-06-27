@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SiGEM-EMG / HCE Emergentología</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <section class="login-screen" id="login-screen">
+      <form class="login-card" id="login-form">
+        <div class="brand login-brand">
+          <div class="brand-mark">SE</div>
+          <div>
+            <h1>SiGEM-EMG</h1>
+            <p>HCE Emergentología</p>
+          </div>
+        </div>
+        <div>
+          <p class="eyebrow">Ingreso al sistema</p>
+          <h2>Identificación de usuario</h2>
+        </div>
+        <label>Usuario
+          <select id="login-user"></select>
+        </label>
+        <label>Clave de prueba
+          <input id="login-password" type="password" placeholder="demo" required />
+        </label>
+        <p class="login-help">Para esta maqueta usá la clave: demo</p>
+        <button class="primary-button" type="submit">Ingresar</button>
+      </form>
+    </section>
+
+    <div class="app-shell hidden" id="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">SE</div>
+          <div>
+            <h1>SiGEM-EMG</h1>
+            <p>HCE Emergentología</p>
+          </div>
+        </div>
+
+        <nav class="nav" aria-label="Secciones principales">
+          <button class="nav-item active" data-view="dashboard">Tablero</button>
+          <button class="nav-item" data-view="new-patient">Nuevo paciente</button>
+          <button class="nav-item" data-view="reports">Reportes</button>
+          <button class="nav-item" data-view="audit">Auditoría</button>
+        </nav>
+
+        <section class="session-panel">
+          <label for="current-user">Usuario activo</label>
+          <select id="current-user"></select>
+          <p id="current-role"></p>
+          <button class="secondary-button" id="logout-button">Cerrar sesión</button>
+        </section>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Servicio de Emergentología</p>
+            <h2 id="view-title">Tablero de pacientes</h2>
+          </div>
+          <div class="topbar-actions">
+            <button class="secondary-button" id="seed-demo">Cargar ejemplo</button>
+            <button class="primary-button" data-view-trigger="new-patient">+ Paciente</button>
+          </div>
+        </header>
+
+        <section id="dashboard-view" class="view active">
+          <div class="metric-strip">
+            <article>
+              <span id="metric-active">0</span>
+              <p>Pacientes activos</p>
+            </article>
+            <article>
+              <span id="metric-observation">0</span>
+              <p>En observación</p>
+            </article>
+            <article>
+              <span id="metric-pending">0</span>
+              <p>Pendientes</p>
+            </article>
+            <article>
+              <span id="metric-discharged">0</span>
+              <p>Egresados hoy</p>
+            </article>
+          </div>
+
+          <div class="toolbar">
+            <input id="patient-search" type="search" placeholder="Buscar por nombre, DNI o motivo" />
+            <select id="status-filter">
+              <option value="all">Todos los estados</option>
+              <option value="Espera">Espera</option>
+              <option value="En evaluación">En evaluación</option>
+              <option value="Observación">Observación</option>
+              <option value="Pendiente de estudios">Pendiente de estudios</option>
+              <option value="Pendiente de interconsulta">Pendiente de interconsulta</option>
+              <option value="Egresado">Egresado</option>
+            </select>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Paciente</th>
+                  <th>Motivo</th>
+                  <th>Prioridad</th>
+                  <th>Estado</th>
+                  <th>Ubicación</th>
+                  <th>Ingreso</th>
+                  <th>Responsable</th>
+                </tr>
+              </thead>
+              <tbody id="patient-table"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="new-patient-view" class="view">
+          <form id="patient-form" class="form-grid">
+            <div class="section-heading">
+              <h3>Datos mínimos del paciente</h3>
+              <p>Estos campos son el punto de partida de la atención.</p>
+            </div>
+            <label>Nombre y apellido <input required name="fullName" /></label>
+            <label>DNI / Identificador <input required name="documentId" /></label>
+            <label>Edad <input required name="age" type="number" min="0" max="130" /></label>
+            <label>Sexo
+              <select name="sex">
+                <option>Femenino</option>
+                <option>Masculino</option>
+                <option>Otro / no consignado</option>
+              </select>
+            </label>
+            <label>Teléfono / contacto <input name="phone" /></label>
+            <label>Contacto de emergencia <input name="emergencyContact" placeholder="Nombre, vínculo y teléfono" /></label>
+            <label>N° historia clínica / HCI <input name="clinicalRecord" /></label>
+            <label>N° episodio / atención <input name="episodeNumber" /></label>
+            <label>Cobertura / obra social <input name="coverage" /></label>
+            <label>Plan <input name="coveragePlan" /></label>
+            <label>N° de afiliado <input name="affiliateNumber" /></label>
+
+            <div class="section-heading full">
+              <h3>Ingreso a guardia</h3>
+              <p>Define cómo aparece el paciente en el tablero.</p>
+            </div>
+            <label>Fecha y hora de ingreso <input name="admissionDateTime" type="datetime-local" /></label>
+            <label>Tipo de ingreso
+              <select name="admissionType" data-admission-type>
+                <option>Propios medios</option>
+                <option>Derivado</option>
+                <option>Ambulancia privada</option>
+                <option>SAME/107</option>
+                <option>Traslado interno</option>
+              </select>
+            </label>
+            <label data-internal-transfer-field>Origen si es traslado interno
+              <select name="internalTransferFrom">
+                <option value="">No corresponde</option>
+                <option>Guardia B</option>
+                <option>Clínica</option>
+                <option>Traumatología</option>
+                <option>Cirugía</option>
+                <option>Quirófano</option>
+                <option>VNI</option>
+                <option>Ginecología</option>
+              </select>
+            </label>
+            <label class="full">Motivo de consulta <textarea required name="chiefComplaint"></textarea></label>
+            <label>Prioridad
+              <select name="priority">
+                <option>Roja</option>
+                <option>Naranja</option>
+                <option selected>Amarilla</option>
+                <option>Verde</option>
+                <option>Azul</option>
+              </select>
+            </label>
+            <label>Estado
+              <select name="status">
+                <option>Espera</option>
+                <option selected>En evaluación</option>
+                <option>Observación</option>
+                <option>Pendiente de estudios</option>
+                <option>Pendiente de interconsulta</option>
+              </select>
+            </label>
+            <label>Ubicación inicial <input name="location" placeholder="Shock room, consultorio, observación..." /></label>
+            <label>Responsable inicial <input name="responsible" /></label>
+            <div class="form-actions full">
+              <button type="reset" class="secondary-button">Limpiar</button>
+              <button type="submit" class="primary-button">Guardar paciente</button>
+            </div>
+          </form>
+        </section>
+
+        <section id="patient-detail-view" class="view">
+          <div id="patient-detail"></div>
+        </section>
+
+        <section id="reports-view" class="view">
+          <div class="report-grid">
+            <article class="report-panel">
+              <h3>Resumen diario</h3>
+              <div id="daily-report"></div>
+            </article>
+            <article class="report-panel">
+              <h3>Destino final</h3>
+              <div id="destination-report"></div>
+            </article>
+            <article class="report-panel medication-report-panel">
+              <h3>Consumo / reposición de medicación</h3>
+              <div id="medication-consumption-report"></div>
+            </article>
+          </div>
+        </section>
+
+        <section id="audit-view" class="view">
+          <div class="audit-list" id="audit-list"></div>
+        </section>
+      </main>
+    </div>
+
+    <template id="clinical-template">
+      <div class="detail-layout">
+        <section class="patient-summary"></section>
+        <section class="clinical-panel">
+          <div class="tabs">
+            <button class="tab active" data-tab="admission">Admisión</button>
+            <button class="tab" data-tab="initial">Evaluación inicial</button>
+            <button class="tab" data-tab="evolutions">Evoluciones</button>
+            <button class="tab" data-tab="orders">Indicaciones</button>
+            <button class="tab" data-tab="nursing">Enfermería</button>
+            <button class="tab" data-tab="studies">Estudios</button>
+            <button class="tab" data-tab="consults">Interconsultas</button>
+            <button class="tab" data-tab="discharge">Alta / egreso</button>
+          </div>
+          <div class="tab-body"></div>
+        </section>
+      </div>
+    </template>
+
+    <script src="app.js"></script>
+  </body>
+</html>
