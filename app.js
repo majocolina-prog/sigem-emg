@@ -14,19 +14,19 @@ const users = [
 const rolePermissions = {
   emergentologist: {
     views: ["dashboard", "new-patient", "patient-detail", "reports"],
-    tabs: ["admission", "initial", "evolutions", "orders", "nursing", "studies", "consults", "discharge"],
-    editTabs: ["admission", "initial", "evolutions", "orders", "studies", "consults", "discharge"],
+    tabs: ["admission", "categorization", "initial", "evolutions", "orders", "nursing", "studies", "consults", "discharge"],
+    editTabs: ["admission", "categorization", "initial", "evolutions", "orders", "studies", "consults", "discharge"],
     canCreatePatient: true,
   },
   resident: {
     views: ["dashboard", "new-patient", "patient-detail", "reports"],
-    tabs: ["admission", "initial", "evolutions", "orders", "nursing", "studies", "consults", "discharge"],
-    editTabs: ["admission", "initial", "evolutions", "orders", "studies", "consults", "discharge"],
+    tabs: ["admission", "categorization", "initial", "evolutions", "orders", "nursing", "studies", "consults", "discharge"],
+    editTabs: ["admission", "categorization", "initial", "evolutions", "orders", "studies", "consults", "discharge"],
     canCreatePatient: true,
   },
   nursing: {
     views: ["dashboard", "patient-detail", "reports"],
-    tabs: ["admission", "initial", "orders", "nursing", "studies", "discharge"],
+    tabs: ["admission", "categorization", "initial", "orders", "nursing", "studies", "discharge"],
     editTabs: ["nursing"],
     canCreatePatient: false,
   },
@@ -38,13 +38,13 @@ const rolePermissions = {
   },
   chief: {
     views: ["dashboard", "patient-detail", "reports", "audit"],
-    tabs: ["admission", "initial", "evolutions", "orders", "nursing", "studies", "consults", "discharge"],
+    tabs: ["admission", "categorization", "initial", "evolutions", "orders", "nursing", "studies", "consults", "discharge"],
     editTabs: [],
     canCreatePatient: false,
   },
   auditor: {
     views: ["dashboard", "patient-detail", "reports", "audit"],
-    tabs: ["admission", "initial", "evolutions", "orders", "nursing", "studies", "consults", "discharge"],
+    tabs: ["admission", "categorization", "initial", "evolutions", "orders", "nursing", "studies", "consults", "discharge"],
     editTabs: [],
     canCreatePatient: false,
   },
@@ -56,8 +56,8 @@ const rolePermissions = {
   },
   admin: {
     views: ["dashboard", "new-patient", "patient-detail", "reports", "audit"],
-    tabs: ["admission", "initial", "evolutions", "orders", "nursing", "studies", "consults", "discharge"],
-    editTabs: ["admission", "initial", "evolutions", "orders", "nursing", "studies", "consults", "discharge"],
+    tabs: ["admission", "categorization", "initial", "evolutions", "orders", "nursing", "studies", "consults", "discharge"],
+    editTabs: ["admission", "categorization", "initial", "evolutions", "orders", "nursing", "studies", "consults", "discharge"],
     canCreatePatient: true,
   },
 };
@@ -82,6 +82,7 @@ const viewTitles = {
 
 const tabTitles = {
   admission: "Admisión",
+  categorization: "Categorización clínica",
   initial: "Evaluación inicial",
   evolutions: "Evoluciones médicas",
   orders: "Indicaciones",
@@ -269,6 +270,8 @@ function setupPatientForm() {
     const fullName = formatPatientName(data.familyName, data.givenName);
     const patient = {
       id: createId(),
+      personId: createId(),
+      episodeId: createId(),
       createdAt: now,
       updatedAt: now,
       familyName: data.familyName.trim(),
@@ -299,6 +302,8 @@ function setupPatientForm() {
       studies: [],
       consults: [],
       discharge: null,
+      clinicalObservations: [],
+      triageAssessments: [],
     };
     state.patients.unshift(patient);
     addAudit("Creó paciente", patient.fullName, patient.id);
@@ -421,6 +426,7 @@ function renderPatientDetail() {
     target.innerHTML = `<div class="empty-state">Seleccioná un paciente desde el tablero.</div>`;
     return;
   }
+  ensureEpisodeClinicalData(patient);
 
   const allowedTabs = getPermissions().tabs;
   if (!allowedTabs.includes(selectedTab)) selectedTab = allowedTabs[0] || "initial";
@@ -471,6 +477,7 @@ function renderPatientSummary(patient) {
 function renderTab(patient, tab) {
   const renderers = {
     admission: renderAdmissionTab,
+    categorization: renderCategorizationTab,
     initial: renderInitialTab,
     evolutions: renderEvolutionsTab,
     orders: renderOrdersTab,
@@ -569,6 +576,95 @@ function renderAdmissionReadOnly(patient) {
       <div><strong>Ubicación</strong><span>${escapeHtml(patient.location || "No consignada")}</span></div>
       <div><strong>Responsable inicial</strong><span>${escapeHtml(patient.responsible || "No consignado")}</span></div>
       <div class="full"><strong>Motivo de consulta</strong><span>${escapeHtml(patient.chiefComplaint || "No consignado")}</span></div>
+    </div>
+  `;
+}
+
+function renderCategorizationTab(patient) {
+  ensureEpisodeClinicalData(patient);
+  const currentTriage = patient.triageAssessments.find((assessment) => assessment.isCurrent);
+  const canRecord = canRecordClinicalObservations();
+  return `
+    <div class="nursing-header">
+      <div><strong>Paciente</strong><span>${escapeHtml(patient.fullName)}</span></div>
+      <div><strong>Episodio</strong><span>${escapeHtml(patient.episodeNumber || patient.episodeId)}</span></div>
+      <div><strong>Triage vigente</strong><span>${escapeHtml(currentTriage?.category || "Sin categorizar")}</span></div>
+      <div><strong>Última medición</strong><span>${patient.clinicalObservations.length ? formatDateTime(patient.clinicalObservations[0].measuredAt) : "Sin registros"}</span></div>
+    </div>
+    <section class="classification-section">
+      <h4>Signos vitales seriados</h4>
+      ${canRecord ? renderClinicalObservationForm() : ""}
+      ${renderClinicalObservationTable(patient.clinicalObservations)}
+    </section>
+    <section class="classification-section">
+      <h4>Historial de triage</h4>
+      ${currentTriage
+        ? renderEntryList(patient.triageAssessments, ["category", "reason"])
+        : emptyState("El episodio todavía no tiene una categorización de triage registrada.")}
+    </section>
+  `;
+}
+
+function renderClinicalObservationForm() {
+  const roleKey = getCurrentUser().roleKey;
+  const defaultSource = roleKey === "nursing" ? "Enfermería" : "Categorización clínica";
+  return `
+    <form class="entry-form compact-form" data-observation-form>
+      <label>Fecha y hora <input name="measuredAt" type="datetime-local" value="${dateTimeLocalValue(new Date().toISOString())}" required /></label>
+      <label>Origen
+        <select name="source">
+          ${["Categorización clínica", "Evaluación médica", "Enfermería"].map((option) => `<option ${option === defaultSource ? "selected" : ""}>${option}</option>`).join("")}
+        </select>
+      </label>
+      <label>TA sistólica <input name="systolicBp" type="number" min="0" /></label>
+      <label>TA diastólica <input name="diastolicBp" type="number" min="0" /></label>
+      <label>FC <input name="heartRate" type="number" min="0" /></label>
+      <label>FR <input name="respiratoryRate" type="number" min="0" /></label>
+      <label>SatO2 (%) <input name="oxygenSaturation" type="number" min="0" max="100" /></label>
+      <label>Temperatura (°C) <input name="temperature" type="number" step="0.1" min="25" max="45" /></label>
+      <label>Oxígeno
+        <select name="oxygenSupport"><option>Aire ambiente</option><option>Oxígeno suplementario</option></select>
+      </label>
+      <label>Estado de conciencia
+        <select name="consciousness"><option>Alerta</option><option>Confusión nueva</option><option>Responde a voz</option><option>Responde al dolor</option><option>Sin respuesta</option></select>
+      </label>
+      <label>Glasgow <input name="glasgow" type="number" min="3" max="15" /></label>
+      <label>HGT (mg/dL) <input name="bloodGlucose" type="number" min="0" /></label>
+      <label>Dolor (0-10) <input name="pain" type="number" min="0" max="10" /></label>
+      <label class="full">Observación <textarea name="note"></textarea></label>
+      <div class="form-actions full"><button class="primary-button" type="submit">Registrar medición</button></div>
+    </form>
+  `;
+}
+
+function renderClinicalObservationTable(observations) {
+  if (!observations.length) return emptyState("Todavía no hay signos vitales estructurados para este episodio.");
+  return `
+    <div class="table-wrap">
+      <table class="observation-table">
+        <thead>
+          <tr><th>Fecha/hora</th><th>Origen</th><th>TA</th><th>FC</th><th>FR</th><th>SatO2</th><th>Temp.</th><th>O2</th><th>Conciencia</th><th>Glasgow</th><th>HGT</th><th>Dolor</th><th>Usuario</th></tr>
+        </thead>
+        <tbody>
+          ${observations.map((item) => `
+            <tr>
+              <td>${formatDateTime(item.measuredAt)}</td>
+              <td>${escapeHtml(item.source)}</td>
+              <td>${escapeHtml(formatBloodPressure(item))}</td>
+              <td>${escapeHtml(item.heartRate || "-")}</td>
+              <td>${escapeHtml(item.respiratoryRate || "-")}</td>
+              <td>${escapeHtml(item.oxygenSaturation ? `${item.oxygenSaturation}%` : "-")}</td>
+              <td>${escapeHtml(item.temperature || "-")}</td>
+              <td>${escapeHtml(item.oxygenSupport || "-")}</td>
+              <td>${escapeHtml(item.consciousness || "-")}</td>
+              <td>${escapeHtml(item.glasgow || "-")}</td>
+              <td>${escapeHtml(item.bloodGlucose || "-")}</td>
+              <td>${escapeHtml(item.pain || "-")}</td>
+              <td>${escapeHtml(item.user || "")}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
     </div>
   `;
 }
@@ -1257,6 +1353,10 @@ function setupClinicalForms(patient) {
   setupAdmissionTypeToggle();
   setupOtherSelects();
   setupAutomaticNursingSummary();
+  $("[data-observation-form]")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    saveClinicalObservation(patient.id, Object.fromEntries(new FormData(event.currentTarget).entries()));
+  });
   $$("[data-clinical-form]").forEach((form) => {
     form.addEventListener("submit", (event) => {
       event.preventDefault();
@@ -1319,6 +1419,45 @@ function saveClinicalEntry(patientId, type, data) {
   render();
 }
 
+function saveClinicalObservation(patientId, data, sourceRecordId = "") {
+  if (!canRecordClinicalObservations()) {
+    alert("Tu rol puede consultar las mediciones, pero no registrarlas.");
+    return;
+  }
+  const patient = state.patients.find((item) => item.id === patientId);
+  ensureEpisodeClinicalData(patient);
+  if (sourceRecordId && patient.clinicalObservations.some((item) => item.sourceRecordId === sourceRecordId)) return;
+  const timestamp = new Date().toISOString();
+  patient.clinicalObservations.unshift({
+    id: createId(),
+    episodeId: patient.episodeId,
+    measuredAt: data.measuredAt ? new Date(data.measuredAt).toISOString() : timestamp,
+    recordedAt: timestamp,
+    source: data.source || "No consignado",
+    sourceRecordId,
+    systolicBp: data.systolicBp || "",
+    diastolicBp: data.diastolicBp || "",
+    heartRate: data.heartRate || "",
+    respiratoryRate: data.respiratoryRate || "",
+    oxygenSaturation: normalizeNumericValue(data.oxygenSaturation),
+    temperature: normalizeNumericValue(data.temperature),
+    oxygenSupport: data.oxygenSupport || "",
+    consciousness: data.consciousness || "",
+    glasgow: data.glasgow || "",
+    bloodGlucose: normalizeNumericValue(data.bloodGlucose),
+    pain: normalizeNumericValue(data.pain),
+    note: data.note || "",
+    status: "Vigente",
+    user: getCurrentUser().name,
+    userId: getCurrentUser().id,
+  });
+  patient.clinicalObservations.sort((a, b) => new Date(b.measuredAt) - new Date(a.measuredAt));
+  patient.updatedAt = timestamp;
+  addAudit("Registró signos vitales seriados", patient.fullName, patient.id);
+  saveState();
+  render();
+}
+
 function saveNursingEntry(patientId, type, data) {
   if (!canEditTab("nursing")) {
     alert("Tu rol no tiene permiso para registrar datos de enfermería.");
@@ -1343,6 +1482,10 @@ function saveNursingEntry(patientId, type, data) {
 
   patient.nursing[type].unshift(entry);
   patient.updatedAt = timestamp;
+
+  if (type === "vitals") {
+    syncNursingVitalsToClinicalObservations(patient, entry);
+  }
 
   const actionNames = {
     shifts: "Asignó turno de enfermería",
@@ -1559,6 +1702,8 @@ function seedDemoData() {
   ].map((patient, index) => ({
     ...patient,
     id: createId(),
+    personId: createId(),
+    episodeId: createId(),
     createdAt: new Date(now.getTime() - index * 42 * 60000).toISOString(),
     updatedAt: new Date(now.getTime() - index * 25 * 60000).toISOString(),
     initial: null,
@@ -1568,6 +1713,8 @@ function seedDemoData() {
     studies: [],
     consults: [],
     discharge: null,
+    clinicalObservations: [],
+    triageAssessments: [],
   }));
   state.patients.unshift(...demo);
   demo.forEach((patient) => addAudit("Cargó paciente de ejemplo", patient.fullName, patient.id));
@@ -1591,6 +1738,67 @@ function ensureNursing(patient) {
   Object.keys(createEmptyNursing()).forEach((key) => {
     if (!Array.isArray(patient.nursing[key])) patient.nursing[key] = [];
   });
+}
+
+function ensureEpisodeClinicalData(patient) {
+  if (!patient.personId) patient.personId = `person-${patient.id}`;
+  if (!patient.episodeId) patient.episodeId = `episode-${patient.id}`;
+  if (!Array.isArray(patient.clinicalObservations)) patient.clinicalObservations = [];
+  if (!Array.isArray(patient.triageAssessments)) patient.triageAssessments = [];
+}
+
+function canRecordClinicalObservations() {
+  return ["nursing", "resident", "emergentologist"].includes(getCurrentUser().roleKey);
+}
+
+function syncNursingVitalsToClinicalObservations(patient, entry) {
+  ensureEpisodeClinicalData(patient);
+  if (patient.clinicalObservations.some((item) => item.sourceRecordId === entry.id)) return;
+  const [systolicBp = "", diastolicBp = ""] = String(entry.bp || "").split("/").map((value) => value.trim());
+  const measuredDate = new Date(entry.createdAt);
+  if (entry.time) {
+    const [hours, minutes] = entry.time.split(":").map(Number);
+    measuredDate.setHours(hours, minutes, 0, 0);
+  }
+  patient.clinicalObservations.unshift({
+    id: createId(),
+    episodeId: patient.episodeId,
+    measuredAt: measuredDate.toISOString(),
+    recordedAt: entry.createdAt,
+    source: "Enfermería",
+    sourceRecordId: entry.id,
+    systolicBp,
+    diastolicBp,
+    heartRate: entry.hr || "",
+    respiratoryRate: entry.rr || "",
+    oxygenSaturation: normalizeNumericValue(entry.sat),
+    temperature: normalizeNumericValue(entry.temp),
+    oxygenSupport: "",
+    consciousness: entry.sensorium || "",
+    glasgow: extractGlasgow(entry.sensorium),
+    bloodGlucose: normalizeNumericValue(entry.hgt),
+    pain: normalizeNumericValue(entry.pain),
+    note: entry.note || "",
+    status: "Vigente",
+    user: entry.user,
+    userId: getCurrentUser().id,
+  });
+  patient.clinicalObservations.sort((a, b) => new Date(b.measuredAt) - new Date(a.measuredAt));
+}
+
+function normalizeNumericValue(value) {
+  const match = String(value || "").replace(",", ".").match(/-?\d+(?:\.\d+)?/);
+  return match ? match[0] : "";
+}
+
+function extractGlasgow(value) {
+  const match = String(value || "").match(/(?:glasgow|gcs)?\s*(1[0-5]|[3-9])\b/i);
+  return match ? match[1] : "";
+}
+
+function formatBloodPressure(observation) {
+  if (!observation.systolicBp && !observation.diastolicBp) return "-";
+  return `${observation.systolicBp || "-"}/${observation.diastolicBp || "-"}`;
 }
 
 function renderShiftSelect() {
