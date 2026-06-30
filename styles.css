@@ -562,6 +562,26 @@ tr[data-patient-id]:hover {
   font-size: 13px;
 }
 
+.classification-section {
+  margin-top: 20px;
+}
+
+.classification-section h4 {
+  margin: 0 0 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+  font-size: 16px;
+}
+
+.observation-table {
+  min-width: 1180px;
+}
+
+.observation-table th,
+.observation-table td {
+  white-space: nowrap;
+}
+
 .audit-list {
   background: white;
   border: 1px solid var(--line);
