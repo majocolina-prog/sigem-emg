@@ -94,6 +94,16 @@ const tabTitles = {
 
 const locationOptions = ["Shock room", "Consultorio", "Observación", "Sala de espera", "Pasillo / camilla", "Guardia B", "VNI"];
 const responsibleOptions = ["Emergentología", "Guardia B", "Cirugía", "Traumatología", "Toxicología", "Cardiología"];
+const serialScoreDefinitions = [
+  {
+    id: "news2-v1-pending-validation",
+    code: "NEWS2",
+    name: "NEWS2",
+    version: "Pendiente de validación institucional",
+    worstValueStrategy: "highest",
+    active: true,
+  },
+];
 
 const orderCatalog = [
   {
@@ -304,6 +314,8 @@ function setupPatientForm() {
       discharge: null,
       clinicalObservations: [],
       triageAssessments: [],
+      scoreCalculations: [],
+      serialScoreSummaries: {},
     };
     state.patients.unshift(patient);
     addAudit("Creó paciente", patient.fullName, patient.id);
@@ -597,11 +609,89 @@ function renderCategorizationTab(patient) {
       ${renderClinicalObservationTable(patient.clinicalObservations)}
     </section>
     <section class="classification-section">
+      <h4>Scores clínicos seriados</h4>
+      ${canRecord ? renderSerialScoreForm(patient) : ""}
+      ${renderSerialScoreSummaries(patient)}
+    </section>
+    <section class="classification-section">
       <h4>Historial de triage</h4>
       ${currentTriage
         ? renderEntryList(patient.triageAssessments, ["category", "reason"])
         : emptyState("El episodio todavía no tiene una categorización de triage registrada.")}
     </section>
+  `;
+}
+
+function renderSerialScoreForm(patient) {
+  const latestObservation = patient.clinicalObservations[0];
+  return `
+    <form class="entry-form compact-form" data-serial-score-form>
+      <label>Score
+        <select name="scoreDefinitionId">
+          ${serialScoreDefinitions.filter((definition) => definition.active).map((definition) => `
+            <option value="${definition.id}">${escapeHtml(definition.name)}</option>
+          `).join("")}
+        </select>
+      </label>
+      <label>Fecha y hora <input name="calculatedAt" type="datetime-local" value="${dateTimeLocalValue(new Date().toISOString())}" required /></label>
+      <label>Puntaje <input name="scoreValue" type="number" step="1" min="0" required /></label>
+      <label>Categoría de riesgo <input name="riskCategory" placeholder="Según protocolo validado" /></label>
+      <label class="full">Interpretación <input name="interpretation" /></label>
+      <label class="full">Datos utilizados
+        <textarea name="inputSnapshot">${escapeHtml(latestObservation ? summarizeObservationInputs(latestObservation) : "")}</textarea>
+      </label>
+      <label class="full">Observación <textarea name="notes"></textarea></label>
+      <div class="form-actions full"><button class="primary-button" type="submit">Registrar score</button></div>
+    </form>
+  `;
+}
+
+function renderSerialScoreSummaries(patient) {
+  const definitionsWithHistory = serialScoreDefinitions.filter((definition) =>
+    patient.scoreCalculations.some((calculation) => calculation.scoreDefinitionId === definition.id && calculation.status !== "Anulado")
+  );
+  if (!definitionsWithHistory.length) return emptyState("Todavía no hay scores seriados registrados para este episodio.");
+  return definitionsWithHistory.map((definition) => {
+    const summary = rebuildSerialScoreSummary(patient, definition);
+    const history = patient.scoreCalculations
+      .filter((calculation) => calculation.scoreDefinitionId === definition.id)
+      .sort((a, b) => new Date(b.calculatedAt) - new Date(a.calculatedAt));
+    return `
+      <div class="serial-score-block">
+        <div class="score-summary-strip">
+          <div><strong>${escapeHtml(definition.name)}</strong><span>${escapeHtml(definition.version)}</span></div>
+          ${renderScoreSummaryValue("Inicial", summary.initial)}
+          ${renderScoreSummaryValue("Peor", summary.worst)}
+          ${renderScoreSummaryValue("Vigente", summary.current)}
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Fecha/hora</th><th>Puntaje</th><th>Riesgo</th><th>Interpretación</th><th>Datos utilizados</th><th>Usuario</th></tr></thead>
+            <tbody>
+              ${history.map((item) => `
+                <tr>
+                  <td>${formatDateTime(item.calculatedAt)}</td>
+                  <td><strong>${escapeHtml(item.scoreValue)}</strong></td>
+                  <td>${escapeHtml(item.riskCategory || "-")}</td>
+                  <td>${escapeHtml(item.interpretation || "-")}</td>
+                  <td>${escapeHtml(item.inputSnapshot || "-")}</td>
+                  <td>${escapeHtml(item.user || "")}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
+function renderScoreSummaryValue(label, calculation) {
+  return `
+    <div>
+      <strong>${label}</strong>
+      <span>${calculation ? `${escapeHtml(calculation.scoreValue)} · ${formatDateTime(calculation.calculatedAt)}` : "Sin registro"}</span>
+    </div>
   `;
 }
 
@@ -1357,6 +1447,10 @@ function setupClinicalForms(patient) {
     event.preventDefault();
     saveClinicalObservation(patient.id, Object.fromEntries(new FormData(event.currentTarget).entries()));
   });
+  $("[data-serial-score-form]")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    saveSerialScoreCalculation(patient.id, Object.fromEntries(new FormData(event.currentTarget).entries()));
+  });
   $$("[data-clinical-form]").forEach((form) => {
     form.addEventListener("submit", (event) => {
       event.preventDefault();
@@ -1456,6 +1550,95 @@ function saveClinicalObservation(patientId, data, sourceRecordId = "") {
   addAudit("Registró signos vitales seriados", patient.fullName, patient.id);
   saveState();
   render();
+}
+
+function saveSerialScoreCalculation(patientId, data) {
+  if (!canRecordClinicalObservations()) {
+    alert("Tu rol puede consultar los scores, pero no registrarlos.");
+    return;
+  }
+  const patient = state.patients.find((item) => item.id === patientId);
+  ensureEpisodeClinicalData(patient);
+  const definition = serialScoreDefinitions.find((item) => item.id === data.scoreDefinitionId);
+  if (!definition) {
+    alert("La definición del score no está disponible.");
+    return;
+  }
+  const timestamp = new Date().toISOString();
+  patient.scoreCalculations.push({
+    id: createId(),
+    episodeId: patient.episodeId,
+    scoreDefinitionId: definition.id,
+    scoreCode: definition.code,
+    scoreVersion: definition.version,
+    scoreValue: Number(data.scoreValue),
+    riskCategory: data.riskCategory?.trim() || "",
+    interpretation: data.interpretation?.trim() || "",
+    inputSnapshot: data.inputSnapshot?.trim() || "",
+    notes: data.notes?.trim() || "",
+    calculationSource: "Registro manual",
+    calculatedAt: data.calculatedAt ? new Date(data.calculatedAt).toISOString() : timestamp,
+    recordedAt: timestamp,
+    status: "Confirmado",
+    user: getCurrentUser().name,
+    userId: getCurrentUser().id,
+  });
+  rebuildSerialScoreSummary(patient, definition);
+  patient.updatedAt = timestamp;
+  addAudit(`Registró ${definition.code} seriado`, patient.fullName, patient.id);
+  saveState();
+  render();
+}
+
+function rebuildSerialScoreSummary(patient, definition) {
+  ensureEpisodeClinicalData(patient);
+  const validCalculations = patient.scoreCalculations
+    .filter((item) => item.scoreDefinitionId === definition.id && item.status !== "Anulado")
+    .sort((a, b) => new Date(a.calculatedAt) - new Date(b.calculatedAt));
+  const initial = validCalculations[0] || null;
+  const current = validCalculations[validCalculations.length - 1] || null;
+  const worst = validCalculations.reduce((selected, candidate) => {
+    if (!selected) return candidate;
+    return isWorseScore(candidate, selected, definition) ? candidate : selected;
+  }, null);
+  const summary = {
+    scoreDefinitionId: definition.id,
+    strategy: definition.worstValueStrategy,
+    initialCalculationId: initial?.id || null,
+    worstCalculationId: worst?.id || null,
+    currentCalculationId: current?.id || null,
+    initial,
+    worst,
+    current,
+    calculationCount: validCalculations.length,
+    updatedAt: new Date().toISOString(),
+  };
+  patient.serialScoreSummaries[definition.id] = {
+    scoreDefinitionId: summary.scoreDefinitionId,
+    strategy: summary.strategy,
+    initialCalculationId: summary.initialCalculationId,
+    worstCalculationId: summary.worstCalculationId,
+    currentCalculationId: summary.currentCalculationId,
+    initialValue: initial?.scoreValue ?? null,
+    worstValue: worst?.scoreValue ?? null,
+    currentValue: current?.scoreValue ?? null,
+    calculationCount: summary.calculationCount,
+    updatedAt: summary.updatedAt,
+  };
+  return summary;
+}
+
+function isWorseScore(candidate, currentWorst, definition) {
+  if (definition.worstValueStrategy === "highest") return candidate.scoreValue > currentWorst.scoreValue;
+  if (definition.worstValueStrategy === "lowest") return candidate.scoreValue < currentWorst.scoreValue;
+  if (definition.worstValueStrategy === "risk_category") {
+    const order = definition.riskCategoryOrder || [];
+    return order.indexOf(candidate.riskCategory) > order.indexOf(currentWorst.riskCategory);
+  }
+  if (definition.worstValueStrategy === "custom_rule" && typeof definition.isWorse === "function") {
+    return definition.isWorse(candidate, currentWorst);
+  }
+  return false;
 }
 
 function saveNursingEntry(patientId, type, data) {
@@ -1715,6 +1898,8 @@ function seedDemoData() {
     discharge: null,
     clinicalObservations: [],
     triageAssessments: [],
+    scoreCalculations: [],
+    serialScoreSummaries: {},
   }));
   state.patients.unshift(...demo);
   demo.forEach((patient) => addAudit("Cargó paciente de ejemplo", patient.fullName, patient.id));
@@ -1745,6 +1930,8 @@ function ensureEpisodeClinicalData(patient) {
   if (!patient.episodeId) patient.episodeId = `episode-${patient.id}`;
   if (!Array.isArray(patient.clinicalObservations)) patient.clinicalObservations = [];
   if (!Array.isArray(patient.triageAssessments)) patient.triageAssessments = [];
+  if (!Array.isArray(patient.scoreCalculations)) patient.scoreCalculations = [];
+  if (!patient.serialScoreSummaries || Array.isArray(patient.serialScoreSummaries)) patient.serialScoreSummaries = {};
 }
 
 function canRecordClinicalObservations() {
@@ -1799,6 +1986,18 @@ function extractGlasgow(value) {
 function formatBloodPressure(observation) {
   if (!observation.systolicBp && !observation.diastolicBp) return "-";
   return `${observation.systolicBp || "-"}/${observation.diastolicBp || "-"}`;
+}
+
+function summarizeObservationInputs(observation) {
+  return [
+    `TA ${formatBloodPressure(observation)}`,
+    observation.heartRate ? `FC ${observation.heartRate}` : "",
+    observation.respiratoryRate ? `FR ${observation.respiratoryRate}` : "",
+    observation.oxygenSaturation ? `SatO2 ${observation.oxygenSaturation}%` : "",
+    observation.temperature ? `T ${observation.temperature}°C` : "",
+    observation.oxygenSupport || "",
+    observation.consciousness || "",
+  ].filter(Boolean).join(" · ");
 }
 
 function renderShiftSelect() {
