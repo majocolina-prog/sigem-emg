@@ -582,6 +582,36 @@ tr[data-patient-id]:hover {
   white-space: nowrap;
 }
 
+.serial-score-block {
+  margin-top: 16px;
+}
+
+.score-summary-strip {
+  display: grid;
+  grid-template-columns: 1.4fr repeat(3, 1fr);
+  gap: 1px;
+  margin-bottom: 10px;
+  border: 1px solid var(--line);
+  background: var(--line);
+}
+
+.score-summary-strip > div {
+  min-width: 0;
+  padding: 12px;
+  background: white;
+}
+
+.score-summary-strip strong,
+.score-summary-strip span {
+  display: block;
+}
+
+.score-summary-strip span {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .audit-list {
   background: white;
   border: 1px solid var(--line);
@@ -1040,6 +1070,10 @@ tr[data-patient-id]:hover {
   .signature-strip,
   .nursing-header {
     grid-template-columns: 1fr;
+  }
+
+  .score-summary-strip {
+    grid-template-columns: 1fr 1fr;
   }
 
   .topbar,
